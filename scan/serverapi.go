@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/Sirupsen/logrus"
+	"github.com/future-architect/vuls/cache"
 	"github.com/future-architect/vuls/config"
 	"github.com/future-architect/vuls/models"
 	cve "github.com/kotakanbe/go-cve-dictionary/models"
@@ -417,6 +418,10 @@ func Scan() []error {
 		return errs
 	}
 
+	if err := setupCache(); err != nil {
+		return []error{err}
+	}
+
 	Log.Info("Scanning vulnerable OS packages...")
 	if errs := scanPackages(); errs != nil {
 		return errs
@@ -425,6 +430,22 @@ func Scan() []error {
 	Log.Info("Scanning vulnerable software specified in the CPE...")
 	if errs := scanVulnByCpeName(); errs != nil {
 		return errs
+	}
+	return nil
+}
+
+func setupCache() error {
+	needToSetupCache := false
+	for _, s := range servers {
+		switch s.getServerInfo().Family {
+		case "ubuntu", "debian":
+			needToSetupCache = true
+			break
+		}
+	}
+	if needToSetupCache {
+		//TODO path
+		return cache.Setup("cache.db", Log)
 	}
 	return nil
 }

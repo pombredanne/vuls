@@ -24,6 +24,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/future-architect/vuls/cache"
 	"github.com/future-architect/vuls/config"
 	"github.com/future-architect/vuls/cveapi"
 	"github.com/future-architect/vuls/models"
@@ -369,6 +370,9 @@ func (o *debian) parseAptGetUpgrade(stdout string) (upgradableNames []string, er
 }
 
 func (o *debian) scanPackageCveInfos(unsecurePacks []models.PackageInfo) (cvePacksList CvePacksList, err error) {
+	if err = cache.CreateBucketIfNotExists(o.getServerInfo().ServerName); err != nil {
+		return nil, fmt.Errorf("Failed to create bucket in cache")
+	}
 
 	// { CVE ID: [packageInfo] }
 	cvePackages := make(map[string][]models.PackageInfo)
