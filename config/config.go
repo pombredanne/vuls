@@ -230,7 +230,17 @@ type ServerInfo struct {
 	// used internal
 	LogMsgAnsiColor string // DebugLog Color
 	Container       Container
-	Family          string
+	Distro          Distro
+}
+
+// Distro has distribution info
+type Distro struct {
+	Family  string
+	Release string
+}
+
+func (l Distro) String() string {
+	return fmt.Sprintf("%s %s", l.Family, l.Release)
 }
 
 // IsContainer returns whether this ServerInfo is about container

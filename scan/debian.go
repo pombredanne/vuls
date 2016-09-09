@@ -40,6 +40,7 @@ type debian struct {
 func newDebian(c config.ServerInfo) *debian {
 	d := &debian{}
 	d.log = util.NewCustomLogger(c)
+	d.setServerInfo(c)
 	return d
 }
 
@@ -47,7 +48,6 @@ func newDebian(c config.ServerInfo) *debian {
 // https://github.com/serverspec/specinfra/blob/master/lib/specinfra/helper/detect_os/debian.rb
 func detectDebian(c config.ServerInfo) (itsMe bool, deb osTypeInterface, err error) {
 	deb = newDebian(c)
-	deb.setServerInfo(c)
 
 	if r := sshExec(c, "ls /etc/debian_version", noSudo); !r.isSuccess() {
 		if r.Error != nil {
@@ -70,12 +70,12 @@ func detectDebian(c config.ServerInfo) (itsMe bool, deb osTypeInterface, err err
 		result := re.FindStringSubmatch(trim(r.Stdout))
 
 		if len(result) == 0 {
-			deb.setDistributionInfo("debian/ubuntu", "unknown")
+			deb.setDistro("debian/ubuntu", "unknown")
 			Log.Warnf(
 				"Unknown Debian/Ubuntu version. lsb_release -ir: %s", r)
 		} else {
 			distro := strings.ToLower(trim(result[1]))
-			deb.setDistributionInfo(distro, trim(result[2]))
+			deb.setDistro(distro, trim(result[2]))
 		}
 		return true, deb, nil
 	}
@@ -91,10 +91,10 @@ func detectDebian(c config.ServerInfo) (itsMe bool, deb osTypeInterface, err err
 		if len(result) == 0 {
 			Log.Warnf(
 				"Unknown Debian/Ubuntu. cat /etc/lsb-release: %s", r)
-			deb.setDistributionInfo("debian/ubuntu", "unknown")
+			deb.setDistro("debian/ubuntu", "unknown")
 		} else {
 			distro := strings.ToLower(trim(result[1]))
-			deb.setDistributionInfo(distro, trim(result[2]))
+			deb.setDistro(distro, trim(result[2]))
 		}
 		return true, deb, nil
 	}
@@ -102,7 +102,7 @@ func detectDebian(c config.ServerInfo) (itsMe bool, deb osTypeInterface, err err
 	// Debian
 	cmd := "cat /etc/debian_version"
 	if r := sshExec(c, cmd, noSudo); r.isSuccess() {
-		deb.setDistributionInfo("debian", trim(r.Stdout))
+		deb.setDistro("debian", trim(r.Stdout))
 		return true, deb, nil
 	}
 
@@ -134,7 +134,7 @@ func (o *debian) install() error {
 		return fmt.Errorf(msg)
 	}
 
-	if o.Family == "debian" {
+	if o.Distro.Family == "debian" {
 		// install aptitude
 		cmd = util.PrependProxyEnv("apt-get install --force-yes -y aptitude")
 		if r := o.ssh(cmd, sudo); !r.isSuccess() {
@@ -209,7 +209,7 @@ func (o *debian) parseScannedPackagesLine(line string) (name, version string, er
 }
 
 func (o *debian) checkRequiredPackagesInstalled() error {
-	if o.Family == "debian" {
+	if o.Distro.Family == "debian" {
 		if r := o.ssh("test -f /usr/bin/aptitude", noSudo); !r.isSuccess() {
 			msg := fmt.Sprintf("aptitude is not installed: %s", r)
 			o.log.Errorf(msg)
@@ -219,9 +219,8 @@ func (o *debian) checkRequiredPackagesInstalled() error {
 	return nil
 }
 
-//TODO return whether already expired.
 func (o *debian) scanUnsecurePackages(packs []models.PackageInfo) ([]CvePacksInfo, error) {
-	//  cmd := prependProxyEnv(conf.HTTPProxy, "apt-get update | cat; echo 1")
+	o.log.Infof("apt-get update...")
 	cmd := util.PrependProxyEnv("apt-get update")
 	if r := o.ssh(cmd, sudo); !r.isSuccess() {
 		return nil, fmt.Errorf("Failed to SSH: %s", r)
@@ -242,10 +241,19 @@ func (o *debian) scanUnsecurePackages(packs []models.PackageInfo) ([]CvePacksInf
 			}
 		}
 	}
-
 	unsecurePacks, err = o.fillCandidateVersion(unsecurePacks)
 	if err != nil {
 		return nil, fmt.Errorf("Failed to fill candidate versions. err: %s", err)
+	}
+
+	current := cache.Meta{
+		Name:   o.getServerInfo().ServerName,
+		Distro: o.getServerInfo().Distro,
+		Packs:  unsecurePacks,
+	}
+	o.log.Debugf("Ensure changelog cache: %s", current.Name)
+	if err := o.ensureChangelogCache(current); err != nil {
+		return nil, err
 	}
 
 	// Collect CVE information of upgradable packages
@@ -255,6 +263,38 @@ func (o *debian) scanUnsecurePackages(packs []models.PackageInfo) ([]CvePacksInf
 	}
 
 	return cvePacksInfos, nil
+}
+
+//TODO test ubuntu14, 16, swap servername
+func (o *debian) ensureChangelogCache(current cache.Meta) error {
+	// Search from cache
+	old, found, err := cache.DB.GetMeta(current.Name)
+	if err != nil {
+		return fmt.Errorf("Failed to get Meta from boltdb. err: %s", err)
+	}
+	if !found {
+		o.log.Debugf("Not found in meta: %s", current.Name)
+		err = cache.DB.EnsureBuckets(current)
+		if err != nil {
+			return fmt.Errorf("Failed to get Meta from boltdb. err: %s", err)
+		}
+	} else {
+		if current.Distro.Family != old.Distro.Family ||
+			current.Distro.Release != old.Distro.Release {
+			o.log.Debugf("Need to reresh meta: %s", current.Name)
+			err = cache.DB.EnsureBuckets(current)
+			if err != nil {
+				return fmt.Errorf("Failed to refresh meta. err: %s", err)
+			}
+		} else {
+			o.log.Debugf("Reuse meta: %s", current.Name)
+		}
+	}
+
+	if config.Conf.Debug {
+		cache.DB.PrettyPrint(current)
+	}
+	return nil
 }
 
 func (o *debian) fillCandidateVersion(packs []models.PackageInfo) ([]models.PackageInfo, error) {
@@ -370,10 +410,6 @@ func (o *debian) parseAptGetUpgrade(stdout string) (upgradableNames []string, er
 }
 
 func (o *debian) scanPackageCveInfos(unsecurePacks []models.PackageInfo) (cvePacksList CvePacksList, err error) {
-	if err = cache.CreateBucketIfNotExists(o.getServerInfo().ServerName); err != nil {
-		return nil, fmt.Errorf("Failed to create bucket in cache")
-	}
-
 	// { CVE ID: [packageInfo] }
 	cvePackages := make(map[string][]models.PackageInfo)
 
@@ -465,7 +501,7 @@ func (o *debian) scanPackageCveInfos(unsecurePacks []models.PackageInfo) (cvePac
 
 func (o *debian) scanPackageCveIDs(pack models.PackageInfo) ([]string, error) {
 	cmd := ""
-	switch o.Family {
+	switch o.Distro.Family {
 	case "ubuntu":
 		cmd = fmt.Sprintf(`apt-get changelog %s | grep '\(urgency\|CVE\)'`, pack.Name)
 	case "debian":
