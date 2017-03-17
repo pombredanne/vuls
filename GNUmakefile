@@ -1,4 +1,9 @@
 .PHONY: \
+	glide \
+	deps \
+	update \
+	build \
+	install \
 	all \
 	vendor \
 	lint \
@@ -11,13 +16,29 @@
 	clean
 
 SRCS = $(shell git ls-files '*.go')
-PKGS = ./. ./config ./models ./report ./cveapi ./scan ./util ./commands
+PKGS = ./. ./config ./models ./report ./cveapi ./scan ./util ./commands ./cache
+VERSION := $(shell git describe --tags --abbrev=0)
+REVISION := $(shell git rev-parse --short HEAD)
+LDFLAGS := -X 'main.version=$(VERSION)' \
+	-X 'main.revision=$(REVISION)'
 
-all: test
+all: glide deps build test
 
-#  vendor:
-#          @ go get -v github.com/mjibson/party
-#          party -d external -c -u
+glide:
+	go get github.com/Masterminds/glide
+
+deps: glide
+	glide install
+
+update: glide
+	glide update
+
+build: main.go deps
+	go build -ldflags "$(LDFLAGS)" -o vuls $<
+
+install: main.go deps
+	go install -ldflags "$(LDFLAGS)"
+
 
 lint:
 	@ go get -v github.com/golang/lint/golint
@@ -36,7 +57,7 @@ fmtcheck:
 pretest: lint vet fmtcheck
 
 test: pretest
-	$(foreach pkg,$(PKGS),go test -v $(pkg) || exit;)
+	$(foreach pkg,$(PKGS),go test -cover -v $(pkg) || exit;)
 
 unused :
 	$(foreach pkg,$(PKGS),unused $(pkg);)

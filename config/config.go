@@ -19,6 +19,8 @@ package config
 
 import (
 	"fmt"
+	"runtime"
+	"strconv"
 	"strings"
 
 	log "github.com/Sirupsen/logrus"
@@ -34,21 +36,35 @@ type Config struct {
 	DebugSQL bool
 	Lang     string
 
-	Mail    smtpConf
+	EMail   SMTPConf
 	Slack   SlackConf
 	Default ServerInfo
 	Servers map[string]ServerInfo
 
-	CveDictionaryURL string `valid:"url"`
-
 	CvssScoreOver      float64
 	IgnoreUnscoredCves bool
 
-	SSHExternal bool
+	SSHExternal    bool
+	ContainersOnly bool
+	SkipBroken     bool
 
-	HTTPProxy   string `valid:"url"`
-	JSONBaseDir string
+	HTTPProxy  string `valid:"url"`
+	LogDir     string
+	ResultsDir string
+
+	CveDBType   string
 	CveDBPath   string
+	CveDBURL    string
+	CacheDBPath string
+
+	FormatXML         bool
+	FormatJSON        bool
+	FormatOneEMail    bool
+	FormatOneLineText bool
+	FormatShortText   bool
+	FormatFullText    bool
+
+	GZIP bool
 
 	AwsProfile string
 	AwsRegion  string
@@ -58,25 +74,60 @@ type Config struct {
 	AzureKey       string
 	AzureContainer string
 
-	//  CpeNames      []string
-	//  SummaryMode          bool
+	Pipe bool
 }
 
-// Validate configuration
-func (c Config) Validate() bool {
+// ValidateOnConfigtest validates
+func (c Config) ValidateOnConfigtest() bool {
 	errs := []error{}
 
-	if len(c.JSONBaseDir) != 0 {
-		if ok, _ := valid.IsFilePath(c.JSONBaseDir); !ok {
+	if runtime.GOOS == "windows" && c.SSHExternal {
+		errs = append(errs, fmt.Errorf("-ssh-external cannot be used on windows"))
+	}
+
+	_, err := valid.ValidateStruct(c)
+	if err != nil {
+		errs = append(errs, err)
+	}
+
+	for _, err := range errs {
+		log.Error(err)
+	}
+
+	return len(errs) == 0
+}
+
+// ValidateOnPrepare validates configuration
+func (c Config) ValidateOnPrepare() bool {
+	return c.ValidateOnConfigtest()
+}
+
+// ValidateOnScan validates configuration
+func (c Config) ValidateOnScan() bool {
+	errs := []error{}
+
+	if len(c.ResultsDir) != 0 {
+		if ok, _ := valid.IsFilePath(c.ResultsDir); !ok {
 			errs = append(errs, fmt.Errorf(
-				"JSON base directory must be a *Absolute* file path. jsonBaseDir: %s", c.JSONBaseDir))
+				"JSON base directory must be a *Absolute* file path. -results-dir: %s", c.ResultsDir))
 		}
 	}
 
-	if len(c.CveDBPath) != 0 {
-		if ok, _ := valid.IsFilePath(c.CveDBPath); !ok {
+	if runtime.GOOS == "windows" && c.SSHExternal {
+		errs = append(errs, fmt.Errorf("-ssh-external cannot be used on windows"))
+	}
+
+	if len(c.ResultsDir) != 0 {
+		if ok, _ := valid.IsFilePath(c.ResultsDir); !ok {
 			errs = append(errs, fmt.Errorf(
-				"SQLite3 DB(Cve Dictionary) path must be a *Absolute* file path. dbpath: %s", c.CveDBPath))
+				"JSON base directory must be a *Absolute* file path. -results-dir: %s", c.ResultsDir))
+		}
+	}
+
+	if len(c.CacheDBPath) != 0 {
+		if ok, _ := valid.IsFilePath(c.CacheDBPath); !ok {
+			errs = append(errs, fmt.Errorf(
+				"Cache DB path must be a *Absolute* file path. -cache-dbpath: %s", c.CacheDBPath))
 		}
 	}
 
@@ -85,7 +136,47 @@ func (c Config) Validate() bool {
 		errs = append(errs, err)
 	}
 
-	if mailerrs := c.Mail.Validate(); 0 < len(mailerrs) {
+	for _, err := range errs {
+		log.Error(err)
+	}
+
+	return len(errs) == 0
+}
+
+// ValidateOnReport validates configuration
+func (c Config) ValidateOnReport() bool {
+	errs := []error{}
+
+	if len(c.ResultsDir) != 0 {
+		if ok, _ := valid.IsFilePath(c.ResultsDir); !ok {
+			errs = append(errs, fmt.Errorf(
+				"JSON base directory must be a *Absolute* file path. -results-dir: %s", c.ResultsDir))
+		}
+	}
+
+	switch c.CveDBType {
+	case "sqlite3":
+		if ok, _ := valid.IsFilePath(c.CveDBPath); !ok {
+			errs = append(errs, fmt.Errorf(
+				"SQLite3 DB(CVE-Dictionary) path must be a *Absolute* file path. -cvedb-path: %s",
+				c.CveDBPath))
+		}
+	case "mysql":
+		if c.CveDBURL == "" {
+			errs = append(errs, fmt.Errorf(
+				`MySQL connection string is needed. -cvedb-url="user:pass@tcp(localhost:3306)/dbname"`))
+		}
+	default:
+		errs = append(errs, fmt.Errorf(
+			"CVE DB type must be either 'sqlite3' or 'mysql'.  -cvedb-type: %s", c.CveDBType))
+	}
+
+	_, err := valid.ValidateStruct(c)
+	if err != nil {
+		errs = append(errs, err)
+	}
+
+	if mailerrs := c.EMail.Validate(); 0 < len(mailerrs) {
 		errs = append(errs, mailerrs...)
 	}
 
@@ -100,8 +191,38 @@ func (c Config) Validate() bool {
 	return len(errs) == 0
 }
 
-// smtpConf is smtp config
-type smtpConf struct {
+// ValidateOnTui validates configuration
+func (c Config) ValidateOnTui() bool {
+	errs := []error{}
+
+	if len(c.ResultsDir) != 0 {
+		if ok, _ := valid.IsFilePath(c.ResultsDir); !ok {
+			errs = append(errs, fmt.Errorf(
+				"JSON base directory must be a *Absolute* file path. -results-dir: %s", c.ResultsDir))
+		}
+	}
+
+	if c.CveDBType != "sqlite3" && c.CveDBType != "mysql" {
+		errs = append(errs, fmt.Errorf(
+			"CVE DB type must be either 'sqlite3' or 'mysql'.  -cve-dictionary-dbtype: %s", c.CveDBType))
+	}
+
+	if c.CveDBType == "sqlite3" {
+		if ok, _ := valid.IsFilePath(c.CveDBPath); !ok {
+			errs = append(errs, fmt.Errorf(
+				"SQLite3 DB(CVE-Dictionary) path must be a *Absolute* file path. -cve-dictionary-dbpath: %s", c.CveDBPath))
+		}
+	}
+
+	for _, err := range errs {
+		log.Error(err)
+	}
+
+	return len(errs) == 0
+}
+
+// SMTPConf is smtp config
+type SMTPConf struct {
 	SMTPAddr string
 	SMTPPort string `valid:"port"`
 
@@ -128,7 +249,7 @@ func checkEmails(emails []string) (errs []error) {
 }
 
 // Validate SMTP configuration
-func (c *smtpConf) Validate() (errs []error) {
+func (c *SMTPConf) Validate() (errs []error) {
 
 	if !c.UseThisTime {
 		return
@@ -179,7 +300,6 @@ type SlackConf struct {
 
 // Validate validates configuration
 func (c *SlackConf) Validate() (errs []error) {
-
 	if !c.UseThisTime {
 		return
 	}
@@ -219,18 +339,53 @@ type ServerInfo struct {
 	KeyPath     string
 	KeyPassword string
 
-	CpeNames []string
+	CpeNames               []string
+	DependencyCheckXMLPath string
 
 	// Container Names or IDs
-	Containers []string
+	Containers Containers
+
+	IgnoreCves []string
 
 	// Optional key-value set that will be outputted to JSON
 	Optional [][]interface{}
 
+	// For CentOS, RHEL, Amazon
+	Enablerepo string
+
 	// used internal
 	LogMsgAnsiColor string // DebugLog Color
 	Container       Container
-	Family          string
+	Distro          Distro
+}
+
+// GetServerName returns ServerName if this serverInfo is about host.
+// If this serverInfo is abount a container, returns containerID@ServerName
+func (s ServerInfo) GetServerName() string {
+	if len(s.Container.ContainerID) == 0 {
+		return s.ServerName
+	}
+	return fmt.Sprintf("%s@%s", s.Container.ContainerID, s.ServerName)
+}
+
+// Distro has distribution info
+type Distro struct {
+	Family  string
+	Release string
+}
+
+func (l Distro) String() string {
+	return fmt.Sprintf("%s %s", l.Family, l.Release)
+}
+
+// MajorVersion returns Major version
+func (l Distro) MajorVersion() (ver int, err error) {
+	if 0 < len(l.Release) {
+		ver, err = strconv.Atoi(strings.Split(l.Release, ".")[0])
+	} else {
+		err = fmt.Errorf("Release is empty")
+	}
+	return
 }
 
 // IsContainer returns whether this ServerInfo is about container
@@ -243,9 +398,16 @@ func (s *ServerInfo) SetContainer(d Container) {
 	s.Container = d
 }
 
+// Containers has Containers information.
+type Containers struct {
+	Type     string
+	Includes []string
+	Excludes []string
+}
+
 // Container has Container information.
 type Container struct {
 	ContainerID string
 	Name        string
-	Type        string
+	Image       string
 }

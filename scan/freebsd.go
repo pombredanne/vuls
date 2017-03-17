@@ -1,3 +1,20 @@
+/* Vuls - Vulnerability Scanner
+Copyright (C) 2016  Future Architect, Inc. Japan.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <http://www.gnu.org/licenses/>.
+*/
+
 package scan
 
 import (
@@ -5,7 +22,6 @@ import (
 	"strings"
 
 	"github.com/future-architect/vuls/config"
-	"github.com/future-architect/vuls/cveapi"
 	"github.com/future-architect/vuls/models"
 	"github.com/future-architect/vuls/util"
 )
@@ -19,37 +35,37 @@ type bsd struct {
 func newBsd(c config.ServerInfo) *bsd {
 	d := &bsd{}
 	d.log = util.NewCustomLogger(c)
+	d.setServerInfo(c)
 	return d
 }
 
 //https://github.com/mizzy/specinfra/blob/master/lib/specinfra/helper/detect_os/freebsd.rb
 func detectFreebsd(c config.ServerInfo) (itsMe bool, bsd osTypeInterface) {
 	bsd = newBsd(c)
-	c.Family = "FreeBSD"
-	if r := sshExec(c, "uname", noSudo); r.isSuccess() {
+
+	// Prevent from adding `set -o pipefail` option
+	c.Distro = config.Distro{Family: "FreeBSD"}
+
+	if r := exec(c, "uname", noSudo); r.isSuccess() {
 		if strings.Contains(r.Stdout, "FreeBSD") == true {
-			if b := sshExec(c, "uname -r", noSudo); b.isSuccess() {
-				bsd.setDistributionInfo("FreeBSD", strings.TrimSpace(b.Stdout))
-				bsd.setServerInfo(c)
+			if b := exec(c, "freebsd-version", noSudo); b.isSuccess() {
+				rel := strings.TrimSpace(b.Stdout)
+				bsd.setDistro("FreeBSD", rel)
 				return true, bsd
 			}
 		}
 	}
-	Log.Debugf("Not FreeBSD. servernam: %s", c.ServerName)
+	util.Log.Debugf("Not FreeBSD. servernam: %s", c.ServerName)
 	return false, bsd
 }
 
 func (o *bsd) checkIfSudoNoPasswd() error {
 	// FreeBSD doesn't need root privilege
-	o.log.Infof("sudo ... OK")
+	o.log.Infof("sudo ... No need")
 	return nil
 }
 
-func (o *bsd) install() error {
-	return nil
-}
-
-func (o *bsd) checkRequiredPackagesInstalled() error {
+func (o *bsd) checkDependencies() error {
 	return nil
 }
 
@@ -62,40 +78,40 @@ func (o *bsd) scanPackages() error {
 	}
 	o.setPackages(packs)
 
-	var unsecurePacks []CvePacksInfo
-	if unsecurePacks, err = o.scanUnsecurePackages(); err != nil {
+	var vinfos []models.VulnInfo
+	if vinfos, err = o.scanUnsecurePackages(); err != nil {
 		o.log.Errorf("Failed to scan vulnerable packages")
 		return err
 	}
-	o.setUnsecurePackages(unsecurePacks)
+	o.setVulnInfos(vinfos)
 	return nil
 }
 
 func (o *bsd) scanInstalledPackages() ([]models.PackageInfo, error) {
 	cmd := util.PrependProxyEnv("pkg version -v")
-	r := o.ssh(cmd, noSudo)
+	r := o.exec(cmd, noSudo)
 	if !r.isSuccess() {
 		return nil, fmt.Errorf("Failed to SSH: %s", r)
 	}
 	return o.parsePkgVersion(r.Stdout), nil
 }
 
-func (o *bsd) scanUnsecurePackages() (cvePacksList []CvePacksInfo, err error) {
+func (o *bsd) scanUnsecurePackages() (vulnInfos []models.VulnInfo, err error) {
 	const vulndbPath = "/tmp/vuln.db"
 	cmd := "rm -f " + vulndbPath
-	r := o.ssh(cmd, noSudo)
+	r := o.exec(cmd, noSudo)
 	if !r.isSuccess(0) {
 		return nil, fmt.Errorf("Failed to SSH: %s", r)
 	}
 
 	cmd = util.PrependProxyEnv("pkg audit -F -r -f " + vulndbPath)
-	r = o.ssh(cmd, noSudo)
+	r = o.exec(cmd, noSudo)
 	if !r.isSuccess(0, 1) {
 		return nil, fmt.Errorf("Failed to SSH: %s", r)
 	}
 	if r.ExitStatus == 0 {
 		// no vulnerabilities
-		return []CvePacksInfo{}, nil
+		return []models.VulnInfo{}, nil
 	}
 
 	var packAdtRslt []pkgAuditResult
@@ -126,35 +142,24 @@ func (o *bsd) scanUnsecurePackages() (cvePacksList []CvePacksInfo, err error) {
 		}
 	}
 
-	cveIDs := []string{}
 	for k := range cveIDAdtMap {
-		cveIDs = append(cveIDs, k)
-	}
-
-	cveDetails, err := cveapi.CveClient.FetchCveDetails(cveIDs)
-	if err != nil {
-		return nil, err
-	}
-	o.log.Info("Done")
-
-	for _, d := range cveDetails {
 		packs := []models.PackageInfo{}
-		for _, r := range cveIDAdtMap[d.CveID] {
+		for _, r := range cveIDAdtMap[k] {
 			packs = append(packs, r.pack)
 		}
 
 		disAdvs := []models.DistroAdvisory{}
-		for _, r := range cveIDAdtMap[d.CveID] {
+		for _, r := range cveIDAdtMap[k] {
 			disAdvs = append(disAdvs, models.DistroAdvisory{
 				AdvisoryID: r.vulnIDCveIDs.vulnID,
 			})
 		}
 
-		cvePacksList = append(cvePacksList, CvePacksInfo{
-			CveID:            d.CveID,
-			CveDetail:        d,
-			Packs:            packs,
+		vulnInfos = append(vulnInfos, models.VulnInfo{
+			CveID:            k,
+			Packages:         packs,
 			DistroAdvisories: disAdvs,
+			Confidence:       models.PkgAuditMatch,
 		})
 	}
 	return

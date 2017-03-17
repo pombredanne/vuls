@@ -91,47 +91,6 @@ func TestChangeSectionState(t *testing.T) {
 	}
 }
 
-func TestParseYumUpdateinfoHeader(t *testing.T) {
-	r := newRedhat(config.ServerInfo{})
-	var tests = []struct {
-		in  string
-		out []models.PackageInfo
-	}{
-		{
-			"     nodejs-0.10.36-3.el6,libuv-0.10.34-1.el6,v8-3.14.5.10-17.el6    ",
-			[]models.PackageInfo{
-				{
-					Name:    "nodejs",
-					Version: "0.10.36",
-					Release: "3.el6",
-				},
-				{
-					Name:    "libuv",
-					Version: "0.10.34",
-					Release: "1.el6",
-				},
-				{
-					Name:    "v8",
-					Version: "3.14.5.10",
-					Release: "17.el6",
-				},
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		if a, err := r.parseYumUpdateinfoHeaderCentOS(tt.in); err != nil {
-			t.Errorf("err: %s", err)
-		} else {
-			if !reflect.DeepEqual(a, tt.out) {
-				e := pp.Sprintf("%#v", tt.out)
-				a := pp.Sprintf("%#v", a)
-				t.Errorf("expected %s, actual %s", e, a)
-			}
-		}
-	}
-}
-
 func TestParseYumUpdateinfoLineToGetCveIDs(t *testing.T) {
 	r := newRedhat(config.ServerInfo{})
 	var tests = []struct {
@@ -385,6 +344,111 @@ func TestParseYumUpdateinfoToGetSeverity(t *testing.T) {
 	}
 }
 
+func TestParseYumUpdateinfoOL(t *testing.T) {
+	stdout := `===============================================================================
+   bind security update
+===============================================================================
+  Update ID : ELSA-2017-0276
+    Release : Oracle Linux 7
+       Type : security
+     Status : final
+     Issued : 2017-02-15
+       CVEs : CVE-2017-3135
+Description : [32:9.9.4-38.2]
+            : - Fix CVE-2017-3135 (ISC change 4557)
+            : - Fix and test caching CNAME before DNAME (ISC
+            :   change 4558)
+   Severity : Moderate
+   
+===============================================================================
+   openssl security update
+===============================================================================
+  Update ID : ELSA-2017-0286
+    Release : Oracle Linux 7
+       Type : security
+     Status : final
+     Issued : 2017-02-15
+       CVEs : CVE-2016-8610
+	    : CVE-2017-3731
+Description : [1.0.1e-48.4]
+            : - fix CVE-2017-3731 - DoS via truncated packets
+            :   with RC4-MD5 cipher
+            : - fix CVE-2016-8610 - DoS of single-threaded
+            :   servers via excessive alerts
+   Severity : Moderate
+   
+===============================================================================
+   Unbreakable Enterprise kernel security update
+===============================================================================
+  Update ID : ELSA-2017-3520
+    Release : Oracle Linux 7
+       Type : security
+     Status : final
+     Issued : 2017-02-15
+       CVEs : CVE-2017-6074
+Description : kernel-uek
+            : [4.1.12-61.1.28]
+            : - dccp: fix freeing skb too early for
+            :   IPV6_RECVPKTINFO (Andrey Konovalov)  [Orabug:
+            :   25598257]  {CVE-2017-6074}
+   Severity : Important
+
+	`
+	issued, _ := time.Parse("2006-01-02", "2017-02-15")
+
+	r := newRedhat(config.ServerInfo{})
+	r.Distro = config.Distro{Family: "oraclelinux"}
+
+	var tests = []struct {
+		in  string
+		out []distroAdvisoryCveIDs
+	}{
+		{
+			stdout,
+			[]distroAdvisoryCveIDs{
+				{
+					DistroAdvisory: models.DistroAdvisory{
+						AdvisoryID: "ELSA-2017-0276",
+						Severity:   "Moderate",
+						Issued:     issued,
+					},
+					CveIDs: []string{"CVE-2017-3135"},
+				},
+				{
+					DistroAdvisory: models.DistroAdvisory{
+						AdvisoryID: "ELSA-2017-0286",
+						Severity:   "Moderate",
+						Issued:     issued,
+					},
+					CveIDs: []string{
+						"CVE-2016-8610",
+						"CVE-2017-3731",
+					},
+				},
+				{
+					DistroAdvisory: models.DistroAdvisory{
+						AdvisoryID: "ELSA-2017-3520",
+						Severity:   "Important",
+						Issued:     issued,
+					},
+					CveIDs: []string{"CVE-2017-6074"},
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		actual, _ := r.parseYumUpdateinfo(tt.in)
+		for i, advisoryCveIDs := range actual {
+			if !reflect.DeepEqual(tt.out[i], advisoryCveIDs) {
+				e := pp.Sprintf("%v", tt.out[i])
+				a := pp.Sprintf("%v", advisoryCveIDs)
+				t.Errorf("[%d] Alas is not same. \nexpected: %s\nactual: %s",
+					i, e, a)
+			}
+		}
+	}
+}
+
 func TestParseYumUpdateinfoRHEL(t *testing.T) {
 
 	stdout := `===============================================================================
@@ -451,7 +515,7 @@ Description : The Berkeley Internet Name Domain (BIND) is an implementation of
 	updated, _ := time.Parse("2006-01-02", "2015-09-04")
 
 	r := newRedhat(config.ServerInfo{})
-	r.Family = "redhat"
+	r.Distro = config.Distro{Family: "redhat"}
 
 	var tests = []struct {
 		in  string
@@ -511,7 +575,7 @@ Description : The Berkeley Internet Name Domain (BIND) is an implementation of
 func TestParseYumUpdateinfoAmazon(t *testing.T) {
 
 	r := newRedhat(config.ServerInfo{})
-	r.Family = "amazon"
+	r.Distro = config.Distro{Family: "redhat"}
 
 	issued, _ := time.Parse("2006-01-02", "2015-12-15")
 	updated, _ := time.Parse("2006-01-02", "2015-12-16")
@@ -601,7 +665,7 @@ Description : Package updates are available for Amazon Linux AMI that fix the
 
 func TestParseYumCheckUpdateLines(t *testing.T) {
 	r := newRedhat(config.ServerInfo{})
-	r.Family = "centos"
+	r.Distro = config.Distro{Family: "centos"}
 	stdout := `Loaded plugins: changelog, fastestmirror, keys, protect-packages, protectbase, security
 Loading mirror speeds from cached hostfile
  * base: mirror.fairway.ne.jp
@@ -616,6 +680,7 @@ Obsoleting Packages
 python-libs.i686    2.6.6-64.el6   rhui-REGION-rhel-server-releases
     python-ordereddict.noarch     1.1-3.el6ev    installed
 bind-utils.x86_64                       30:9.3.6-25.P1.el5_11.8          updates
+pytalloc.x86_64                 2.0.7-2.el6                      @CentOS 6.5/6.5
 `
 
 	r.Packages = []models.PackageInfo{
@@ -644,6 +709,11 @@ bind-utils.x86_64                       30:9.3.6-25.P1.el5_11.8          updates
 			Version: "1.0",
 			Release: "1",
 		},
+		{
+			Name:    "pytalloc",
+			Version: "2.0.1",
+			Release: "0",
+		},
 	}
 	var tests = []struct {
 		in  string
@@ -658,6 +728,7 @@ bind-utils.x86_64                       30:9.3.6-25.P1.el5_11.8          updates
 					Release:    "4.el6",
 					NewVersion: "2.3.7",
 					NewRelease: "5.el6",
+					Repository: "base",
 				},
 				{
 					Name:       "bash",
@@ -665,6 +736,7 @@ bind-utils.x86_64                       30:9.3.6-25.P1.el5_11.8          updates
 					Release:    "33",
 					NewVersion: "4.1.2",
 					NewRelease: "33.el6_7.1",
+					Repository: "updates",
 				},
 				{
 					Name:       "python-libs",
@@ -672,6 +744,7 @@ bind-utils.x86_64                       30:9.3.6-25.P1.el5_11.8          updates
 					Release:    "1.1-0",
 					NewVersion: "2.6.6",
 					NewRelease: "64.el6",
+					Repository: "rhui-REGION-rhel-server-releases",
 				},
 				{
 					Name:       "python-ordereddict",
@@ -679,6 +752,7 @@ bind-utils.x86_64                       30:9.3.6-25.P1.el5_11.8          updates
 					Release:    "1",
 					NewVersion: "1.1",
 					NewRelease: "3.el6ev",
+					Repository: "installed",
 				},
 				{
 					Name:       "bind-utils",
@@ -686,6 +760,15 @@ bind-utils.x86_64                       30:9.3.6-25.P1.el5_11.8          updates
 					Release:    "1",
 					NewVersion: "9.3.6",
 					NewRelease: "25.P1.el5_11.8",
+					Repository: "updates",
+				},
+				{
+					Name:       "pytalloc",
+					Version:    "2.0.1",
+					Release:    "0",
+					NewVersion: "2.0.7",
+					NewRelease: "2.el6",
+					Repository: "@CentOS 6.5/6.5",
 				},
 			},
 		},
@@ -709,7 +792,7 @@ bind-utils.x86_64                       30:9.3.6-25.P1.el5_11.8          updates
 
 func TestParseYumCheckUpdateLinesAmazon(t *testing.T) {
 	r := newRedhat(config.ServerInfo{})
-	r.Family = "amazon"
+	r.Distro = config.Distro{Family: "amazon"}
 	stdout := `Loaded plugins: priorities, update-motd, upgrade-helper
 34 package(s) needed for security, out of 71 available
 
@@ -747,6 +830,7 @@ if-not-architecture        100-200                         amzn-main
 					Release:    "0.33.rc1.45.amzn1",
 					NewVersion: "9.8.2",
 					NewRelease: "0.37.rc1.45.amzn1",
+					Repository: "amzn-main",
 				},
 				{
 					Name:       "java-1.7.0-openjdk",
@@ -754,6 +838,7 @@ if-not-architecture        100-200                         amzn-main
 					Release:    "2.6.4.0.0.amzn1",
 					NewVersion: "1.7.0.95",
 					NewRelease: "2.6.4.0.65.amzn1",
+					Repository: "amzn-main",
 				},
 				{
 					Name:       "if-not-architecture",
@@ -761,6 +846,7 @@ if-not-architecture        100-200                         amzn-main
 					Release:    "20",
 					NewVersion: "100",
 					NewRelease: "200",
+					Repository: "amzn-main",
 				},
 			},
 		},
@@ -778,31 +864,6 @@ if-not-architecture        100-200                         amzn-main
 				a := pp.Sprintf("%v", packInfoList[i])
 				t.Errorf("[%d] expected %s, actual %s", i, e, a)
 			}
-		}
-	}
-}
-
-func TestParseYumUpdateinfoAmazonLinuxHeader(t *testing.T) {
-	r := newRedhat(config.ServerInfo{})
-	var tests = []struct {
-		in  string
-		out models.DistroAdvisory
-	}{
-		{
-			"Amazon Linux AMI 2014.03 - ALAS-2015-598: low priority package update for grep",
-			models.DistroAdvisory{
-				AdvisoryID: "ALAS-2015-598",
-				Severity:   "low",
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		a, _, _ := r.parseYumUpdateinfoHeaderAmazon(tt.in)
-		if !reflect.DeepEqual(a, tt.out) {
-			e := pp.Sprintf("%v", tt.out)
-			a := pp.Sprintf("%v", a)
-			t.Errorf("expected %s, actual %s", e, a)
 		}
 	}
 }
@@ -1110,10 +1171,12 @@ func TestGetChangelogCVELines(t *testing.T) {
 	}
 
 	r := newRedhat(config.ServerInfo{})
-	r.Family = "centos"
-	r.Release = "6.7"
+	r.Distro = config.Distro{
+		Family:  "centos",
+		Release: "6.7",
+	}
 	for _, tt := range testsCentos6 {
-		rpm2changelog, err := r.parseAllChangelog(stdoutCentos6)
+		rpm2changelog, err := r.divideChangelogByPackage(stdoutCentos6)
 		if err != nil {
 			t.Errorf("err: %s", err)
 		}
@@ -1194,9 +1257,12 @@ func TestGetChangelogCVELines(t *testing.T) {
 		},
 	}
 
-	r.Release = "5.6"
+	r.Distro = config.Distro{
+		Family:  "centos",
+		Release: "5.6",
+	}
 	for _, tt := range testsCentos5 {
-		rpm2changelog, err := r.parseAllChangelog(stdoutCentos5)
+		rpm2changelog, err := r.divideChangelogByPackage(stdoutCentos5)
 		if err != nil {
 			t.Errorf("err: %s", err)
 		}

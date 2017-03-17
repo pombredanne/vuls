@@ -22,14 +22,17 @@ import (
 	"fmt"
 	"os"
 
-	"golang.org/x/net/context"
+	"context"
 
 	"github.com/future-architect/vuls/commands"
-	"github.com/future-architect/vuls/version"
 	"github.com/google/subcommands"
-
-	_ "github.com/mattn/go-sqlite3"
 )
+
+// Version of Vuls
+var version = "0.2.0"
+
+// Revision of Git
+var revision string
 
 func main() {
 	subcommands.Register(subcommands.HelpCommand(), "")
@@ -38,8 +41,8 @@ func main() {
 	subcommands.Register(&commands.DiscoverCmd{}, "discover")
 	subcommands.Register(&commands.TuiCmd{}, "tui")
 	subcommands.Register(&commands.ScanCmd{}, "scan")
-	subcommands.Register(&commands.PrepareCmd{}, "prepare")
 	subcommands.Register(&commands.HistoryCmd{}, "history")
+	subcommands.Register(&commands.ReportCmd{}, "report")
 	subcommands.Register(&commands.ConfigtestCmd{}, "configtest")
 
 	var v = flag.Bool("v", false, "Show version")
@@ -47,7 +50,7 @@ func main() {
 	flag.Parse()
 
 	if *v {
-		fmt.Printf("%s %s\n", version.Name, version.Version)
+		fmt.Printf("vuls %s %s\n", version, revision)
 		os.Exit(int(subcommands.ExitSuccess))
 	}
 

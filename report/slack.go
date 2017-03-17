@@ -20,6 +20,7 @@ package report
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -56,59 +57,109 @@ type message struct {
 // SlackWriter send report to slack
 type SlackWriter struct{}
 
-func (w SlackWriter) Write(scanResults []models.ScanResult) error {
+func (w SlackWriter) Write(rs ...models.ScanResult) error {
 	conf := config.Conf.Slack
-	for _, s := range scanResults {
+	channel := conf.Channel
 
-		channel := conf.Channel
+	for _, r := range rs {
 		if channel == "${servername}" {
-			channel = fmt.Sprintf("#%s", s.ServerName)
+			channel = fmt.Sprintf("#%s", r.ServerName)
 		}
 
-		msg := message{
-			Text:        msgText(s),
-			Username:    conf.AuthUser,
-			IconEmoji:   conf.IconEmoji,
-			Channel:     channel,
-			Attachments: toSlackAttachments(s),
-		}
-
-		bytes, _ := json.Marshal(msg)
-		jsonBody := string(bytes)
-		f := func() (err error) {
-			resp, body, errs := gorequest.New().Proxy(config.Conf.HTTPProxy).Post(conf.HookURL).
-				Send(string(jsonBody)).End()
-			if resp.StatusCode != 200 {
-				log.Errorf("Resonse body: %s", body)
-				if 0 < len(errs) {
-					return errs[0]
-				}
+		if 0 < len(r.Errors) {
+			serverInfo := fmt.Sprintf("*%s*", r.ServerInfo())
+			notifyUsers := getNotifyUsers(config.Conf.Slack.NotifyUsers)
+			txt := fmt.Sprintf("%s\n%s\nError: %s", notifyUsers, serverInfo, r.Errors)
+			msg := message{
+				Text:      txt,
+				Username:  conf.AuthUser,
+				IconEmoji: conf.IconEmoji,
+				Channel:   channel,
 			}
-			return nil
+			if err := send(msg); err != nil {
+				return err
+			}
+			continue
 		}
-		notify := func(err error, t time.Duration) {
-			log.Warn("Retrying in ", t)
+
+		// A maximum of 100 attachments are allowed on a message.
+		// Split into chunks with 100 elements
+		// https://api.slack.com/methods/chat.postMessage
+		maxAttachments := 100
+		m := map[int][]*attachment{}
+		for i, a := range toSlackAttachments(r) {
+			m[i/maxAttachments] = append(m[i/maxAttachments], a)
 		}
-		if err := backoff.RetryNotify(f, backoff.NewExponentialBackOff(), notify); err != nil {
-			return fmt.Errorf("HTTP Error: %s", err)
+		chunkKeys := []int{}
+		for k := range m {
+			chunkKeys = append(chunkKeys, k)
+		}
+		sort.Ints(chunkKeys)
+
+		for i, k := range chunkKeys {
+			txt := ""
+			if i == 0 {
+				txt = msgText(r)
+			}
+			msg := message{
+				Text:        txt,
+				Username:    conf.AuthUser,
+				IconEmoji:   conf.IconEmoji,
+				Channel:     channel,
+				Attachments: m[k],
+			}
+			if err := send(msg); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
 }
 
-func msgText(r models.ScanResult) string {
+func send(msg message) error {
+	conf := config.Conf.Slack
+	count, retryMax := 0, 10
 
+	bytes, _ := json.Marshal(msg)
+	jsonBody := string(bytes)
+
+	f := func() (err error) {
+		resp, body, errs := gorequest.New().Proxy(config.Conf.HTTPProxy).Post(conf.HookURL).Send(string(jsonBody)).End()
+		if 0 < len(errs) || resp == nil || resp.StatusCode != 200 {
+			count++
+			if count == retryMax {
+				return nil
+			}
+			return fmt.Errorf(
+				"HTTP POST error: %v, url: %s, resp: %v, body: %s",
+				errs, conf.HookURL, resp, body)
+		}
+		return nil
+	}
+	notify := func(err error, t time.Duration) {
+		log.Warnf("Error %s", err)
+		log.Warn("Retrying in ", t)
+	}
+	boff := backoff.NewExponentialBackOff()
+	if err := backoff.RetryNotify(f, boff, notify); err != nil {
+		return fmt.Errorf("HTTP error: %s", err)
+	}
+	if count == retryMax {
+		return fmt.Errorf("Retry count exceeded")
+	}
+	return nil
+}
+
+func msgText(r models.ScanResult) string {
 	notifyUsers := ""
 	if 0 < len(r.KnownCves) || 0 < len(r.UnknownCves) {
 		notifyUsers = getNotifyUsers(config.Conf.Slack.NotifyUsers)
 	}
-
 	serverInfo := fmt.Sprintf("*%s*", r.ServerInfo())
 	return fmt.Sprintf("%s\n%s\n>%s", notifyUsers, serverInfo, r.CveSummary())
 }
 
 func toSlackAttachments(scanResult models.ScanResult) (attaches []*attachment) {
-
 	cves := scanResult.KnownCves
 	if !config.Conf.IgnoreUnscoredCves {
 		cves = append(cves, scanResult.UnknownCves...)
@@ -121,8 +172,8 @@ func toSlackAttachments(scanResult models.ScanResult) (attaches []*attachment) {
 		for _, p := range cveInfo.Packages {
 			curentPackages = append(curentPackages, p.ToStringCurrentVersion())
 		}
-		for _, cpename := range cveInfo.CpeNames {
-			curentPackages = append(curentPackages, cpename.Name)
+		for _, n := range cveInfo.CpeNames {
+			curentPackages = append(curentPackages, n)
 		}
 
 		newPackages := []string{}
@@ -170,36 +221,38 @@ func color(cvssScore float64) string {
 }
 
 func attachmentText(cveInfo models.CveInfo, osFamily string) string {
-
 	linkText := links(cveInfo, osFamily)
-
 	switch {
 	case config.Conf.Lang == "ja" &&
 		0 < cveInfo.CveDetail.Jvn.CvssScore():
 
 		jvn := cveInfo.CveDetail.Jvn
-		return fmt.Sprintf("*%4.1f (%s)* <%s|%s>\n%s\n%s",
+		return fmt.Sprintf("*%4.1f (%s)* <%s|%s>\n%s\n%s\n*Confidence:* %v",
 			cveInfo.CveDetail.CvssScore(config.Conf.Lang),
 			jvn.CvssSeverity(),
-			fmt.Sprintf(cvssV2CalcURLTemplate, cveInfo.CveDetail.CveID, jvn.CvssVector()),
+			fmt.Sprintf(cvssV2CalcURLTemplate,
+				cveInfo.CveDetail.CveID, jvn.CvssVector()),
 			jvn.CvssVector(),
 			jvn.CveTitle(),
 			linkText,
+			cveInfo.VulnInfo.Confidence,
 		)
-
 	case 0 < cveInfo.CveDetail.CvssScore("en"):
 		nvd := cveInfo.CveDetail.Nvd
-		return fmt.Sprintf("*%4.1f (%s)* <%s|%s>\n%s\n%s",
+		return fmt.Sprintf("*%4.1f (%s)* <%s|%s>\n%s\n%s\n*Confidence:* %v",
 			cveInfo.CveDetail.CvssScore(config.Conf.Lang),
 			nvd.CvssSeverity(),
-			fmt.Sprintf(cvssV2CalcURLTemplate, cveInfo.CveDetail.CveID, nvd.CvssVector()),
+			fmt.Sprintf(cvssV2CalcURLTemplate,
+				cveInfo.CveDetail.CveID, nvd.CvssVector()),
 			nvd.CvssVector(),
 			nvd.CveSummary(),
 			linkText,
+			cveInfo.VulnInfo.Confidence,
 		)
 	default:
 		nvd := cveInfo.CveDetail.Nvd
-		return fmt.Sprintf("?\n%s\n%s", nvd.CveSummary(), linkText)
+		return fmt.Sprintf("?\n%s\n%s\n*Confidence:* %v",
+			nvd.CveSummary(), linkText, cveInfo.VulnInfo.Confidence)
 	}
 }
 

@@ -18,7 +18,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 package util
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -29,6 +28,9 @@ import (
 	"github.com/future-architect/vuls/config"
 	formatter "github.com/kotakanbe/logrus-prefixed-formatter"
 )
+
+// Log for localhsot
+var Log *logrus.Entry
 
 // NewCustomLogger creates logrus
 func NewCustomLogger(c config.ServerInfo) *logrus.Entry {
@@ -41,24 +43,20 @@ func NewCustomLogger(c config.ServerInfo) *logrus.Entry {
 	}
 
 	// File output
-	logDir := "/var/log/vuls"
-	if runtime.GOOS == "windows" {
-		logDir = filepath.Join(os.Getenv("APPDATA"), "vuls")
+	logDir := GetDefaultLogDir()
+	if 0 < len(config.Conf.LogDir) {
+		logDir = config.Conf.LogDir
 	}
+
 	if _, err := os.Stat(logDir); os.IsNotExist(err) {
-		if err := os.Mkdir(logDir, 0666); err != nil {
-			logrus.Errorf("Failed to create log directory: %s", err)
+		if err := os.Mkdir(logDir, 0700); err != nil {
+			log.Errorf("Failed to create log directory: %s", err)
 		}
 	}
 
 	whereami := "localhost"
 	if 0 < len(c.ServerName) {
-		if 0 < len(c.Container.ContainerID) {
-			whereami = fmt.Sprintf(
-				"%s_%s", c.ServerName, c.Container.Name)
-		} else {
-			whereami = fmt.Sprintf("%s", c.ServerName)
-		}
+		whereami = c.GetServerName()
 	}
 
 	if _, err := os.Stat(logDir); err == nil {
@@ -75,4 +73,13 @@ func NewCustomLogger(c config.ServerInfo) *logrus.Entry {
 
 	fields := logrus.Fields{"prefix": whereami}
 	return log.WithFields(fields)
+}
+
+// GetDefaultLogDir returns default log directory
+func GetDefaultLogDir() string {
+	defaultLogDir := "/var/log/vuls"
+	if runtime.GOOS == "windows" {
+		defaultLogDir = filepath.Join(os.Getenv("APPDATA"), "vuls")
+	}
+	return defaultLogDir
 }
