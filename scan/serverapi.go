@@ -121,13 +121,13 @@ func PrintSSHableServerNames() {
 }
 
 // InitServers detect the kind of OS distribution of target servers
-func InitServers() error {
-	servers, errServers = detectServerOSes()
+func InitServers(timeoutSec int) error {
+	servers, errServers = detectServerOSes(timeoutSec)
 	if len(servers) == 0 {
 		return fmt.Errorf("No scannable servers")
 	}
 
-	actives, inactives := detectContainerOSes()
+	actives, inactives := detectContainerOSes(timeoutSec)
 	if config.Conf.ContainersOnly {
 		servers = actives
 		errServers = inactives
@@ -138,7 +138,7 @@ func InitServers() error {
 	return nil
 }
 
-func detectServerOSes() (servers, errServers []osTypeInterface) {
+func detectServerOSes(timeoutSec int) (servers, errServers []osTypeInterface) {
 	util.Log.Info("Detecting OS of servers... ")
 	osTypeChan := make(chan osTypeInterface, len(config.Conf.Servers))
 	defer close(osTypeChan)
@@ -153,7 +153,7 @@ func detectServerOSes() (servers, errServers []osTypeInterface) {
 		}(s)
 	}
 
-	timeout := time.After(30 * time.Second)
+	timeout := time.After(time.Duration(timeoutSec) * time.Second)
 	for i := 0; i < len(config.Conf.Servers); i++ {
 		select {
 		case res := <-osTypeChan:
@@ -199,7 +199,7 @@ func detectServerOSes() (servers, errServers []osTypeInterface) {
 	return
 }
 
-func detectContainerOSes() (actives, inactives []osTypeInterface) {
+func detectContainerOSes(timeoutSec int) (actives, inactives []osTypeInterface) {
 	util.Log.Info("Detecting OS of containers... ")
 	osTypesChan := make(chan []osTypeInterface, len(servers))
 	defer close(osTypesChan)
@@ -215,7 +215,7 @@ func detectContainerOSes() (actives, inactives []osTypeInterface) {
 		}(s)
 	}
 
-	timeout := time.After(30 * time.Second)
+	timeout := time.After(time.Duration(timeoutSec) * time.Second)
 	for i := 0; i < len(servers); i++ {
 		select {
 		case res := <-osTypesChan:
@@ -342,8 +342,7 @@ func detectContainerOSesOnServer(containerHost osTypeInterface) (oses []osTypeIn
 }
 
 // CheckDependencies checks dependencies are installed on target servers.
-func CheckDependencies() {
-	timeoutSec := 5 * 60
+func CheckDependencies(timeoutSec int) {
 	parallelExec(func(o osTypeInterface) error {
 		return o.checkDependencies()
 	}, timeoutSec)
@@ -351,8 +350,7 @@ func CheckDependencies() {
 }
 
 // CheckIfSudoNoPasswd checks whether vuls can sudo with nopassword via SSH
-func CheckIfSudoNoPasswd() {
-	timeoutSec := 5 * 60
+func CheckIfSudoNoPasswd(timeoutSec int) {
 	parallelExec(func(o osTypeInterface) error {
 		return o.checkIfSudoNoPasswd()
 	}, timeoutSec)
@@ -360,8 +358,8 @@ func CheckIfSudoNoPasswd() {
 }
 
 // DetectPlatforms detects the platform of each servers.
-func DetectPlatforms() {
-	detectPlatforms()
+func DetectPlatforms(timeoutSec int) {
+	detectPlatforms(timeoutSec)
 	for i, s := range servers {
 		if s.getServerInfo().IsContainer() {
 			util.Log.Infof("(%d/%d) %s on %s is running on %s",
@@ -382,8 +380,7 @@ func DetectPlatforms() {
 	return
 }
 
-func detectPlatforms() {
-	timeoutSec := 1 * 60
+func detectPlatforms(timeoutSec int) {
 	parallelExec(func(o osTypeInterface) error {
 		o.detectPlatform()
 		// Logging only if platform can not be specified
@@ -393,7 +390,7 @@ func detectPlatforms() {
 }
 
 // Scan scan
-func Scan() error {
+func Scan(timeoutSec int) error {
 	if len(servers) == 0 {
 		return fmt.Errorf("No server defined. Check the configuration")
 	}
@@ -413,7 +410,7 @@ func Scan() error {
 	if err != nil {
 		return err
 	}
-	if err := scanVulns(dir, scannedAt); err != nil {
+	if err := scanVulns(dir, scannedAt, timeoutSec); err != nil {
 		return err
 	}
 
@@ -437,9 +434,8 @@ func setupChangelogCache() error {
 	return nil
 }
 
-func scanVulns(jsonDir string, scannedAt time.Time) error {
+func scanVulns(jsonDir string, scannedAt time.Time, timeoutSec int) error {
 	var results models.ScanResults
-	timeoutSec := 120 * 60
 	parallelExec(func(o osTypeInterface) error {
 		return o.scanPackages()
 	}, timeoutSec)

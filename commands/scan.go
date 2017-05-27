@@ -44,8 +44,10 @@ type ScanCmd struct {
 	askKeyPassword bool
 	containersOnly bool
 	skipBroken     bool
-	sshExternal    bool
+	sshNative      bool
 	pipe           bool
+	timeoutSec     int
+	scanTimeoutSec int
 }
 
 // Name return subcommand name
@@ -62,11 +64,13 @@ func (*ScanCmd) Usage() string {
 		[-results-dir=/path/to/results]
 		[-log-dir=/path/to/log]
 		[-cachedb-path=/path/to/cache.db]
-		[-ssh-external]
+		[-ssh-native-insecure]
 		[-containers-only]
 		[-skip-broken]
 		[-http-proxy=http://192.168.0.1:8080]
 		[-ask-key-password]
+		[-timeout=300]
+		[-timeout-scan=7200]
 		[-debug]
 		[-pipe]
 
@@ -97,10 +101,10 @@ func (p *ScanCmd) SetFlags(f *flag.FlagSet) {
 		"/path/to/cache.db (local cache of changelog for Ubuntu/Debian)")
 
 	f.BoolVar(
-		&p.sshExternal,
-		"ssh-external",
+		&p.sshNative,
+		"ssh-native-insecure",
 		false,
-		"Use external ssh command. Default: Use the Go native implementation")
+		"Use Native Go implementation of SSH. Default: Use the external command")
 
 	f.BoolVar(
 		&p.containersOnly,
@@ -133,6 +137,20 @@ func (p *ScanCmd) SetFlags(f *flag.FlagSet) {
 		"pipe",
 		false,
 		"Use stdin via PIPE")
+
+	f.IntVar(
+		&p.timeoutSec,
+		"timeout",
+		5*60,
+		"Number of seconds for processing other than scan",
+	)
+
+	f.IntVar(
+		&p.scanTimeoutSec,
+		"timeout-scan",
+		120*60,
+		"Number of seconds for scaning vulnerabilities for all servers",
+	)
 }
 
 // Execute execute
@@ -202,7 +220,7 @@ func (p *ScanCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}) 
 
 	c.Conf.ResultsDir = p.resultsDir
 	c.Conf.CacheDBPath = p.cacheDBPath
-	c.Conf.SSHExternal = p.sshExternal
+	c.Conf.SSHNative = p.sshNative
 	c.Conf.HTTPProxy = p.httpProxy
 	c.Conf.ContainersOnly = p.containersOnly
 	c.Conf.SkipBroken = p.skipBroken
@@ -213,16 +231,16 @@ func (p *ScanCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}) 
 	}
 
 	util.Log.Info("Detecting Server/Container OS... ")
-	if err := scan.InitServers(); err != nil {
+	if err := scan.InitServers(p.timeoutSec); err != nil {
 		util.Log.Errorf("Failed to init servers: %s", err)
 		return subcommands.ExitFailure
 	}
 
 	util.Log.Info("Detecting Platforms... ")
-	scan.DetectPlatforms()
+	scan.DetectPlatforms(p.timeoutSec)
 
 	util.Log.Info("Scanning vulnerabilities... ")
-	if err := scan.Scan(); err != nil {
+	if err := scan.Scan(p.scanTimeoutSec); err != nil {
 		util.Log.Errorf("Failed to scan. err: %s", err)
 		return subcommands.ExitFailure
 	}

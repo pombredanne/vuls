@@ -44,7 +44,7 @@ type Config struct {
 	CvssScoreOver      float64
 	IgnoreUnscoredCves bool
 
-	SSHExternal    bool
+	SSHNative      bool
 	ContainersOnly bool
 	SkipBroken     bool
 
@@ -75,14 +75,15 @@ type Config struct {
 	AzureContainer string
 
 	Pipe bool
+	Diff bool
 }
 
 // ValidateOnConfigtest validates
 func (c Config) ValidateOnConfigtest() bool {
 	errs := []error{}
 
-	if runtime.GOOS == "windows" && c.SSHExternal {
-		errs = append(errs, fmt.Errorf("-ssh-external cannot be used on windows"))
+	if runtime.GOOS == "windows" && !c.SSHNative {
+		errs = append(errs, fmt.Errorf("-ssh-native-insecure is needed on windows"))
 	}
 
 	_, err := valid.ValidateStruct(c)
@@ -113,8 +114,8 @@ func (c Config) ValidateOnScan() bool {
 		}
 	}
 
-	if runtime.GOOS == "windows" && c.SSHExternal {
-		errs = append(errs, fmt.Errorf("-ssh-external cannot be used on windows"))
+	if runtime.GOOS == "windows" && !c.SSHNative {
+		errs = append(errs, fmt.Errorf("-ssh-native-insecure is needed on windows"))
 	}
 
 	if len(c.ResultsDir) != 0 {
