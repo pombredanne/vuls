@@ -94,6 +94,8 @@ var kernelRelatedPackNames = map[string]bool{
 	"kernel-tools":            true,
 	"kernel-tools-libs":       true,
 	"kernel-tools-libs-devel": true,
+	"perf":        true,
+	"python-perf": true,
 }
 
 func (o RedHatBase) update(r *models.ScanResult, defPacks defPacks) {
@@ -129,7 +131,7 @@ func (o RedHatBase) update(r *models.ScanResult, defPacks defPacks) {
 			notFixedYet, _ := defPacks.actuallyAffectedPackNames[pack.Name]
 			defPacks.actuallyAffectedPackNames[pack.Name] = notFixedYet
 		}
-		vinfo.AffectedPackages = defPacks.toPackStatuses(r.Family, r.Packages)
+		vinfo.AffectedPackages = defPacks.toPackStatuses(r.Family)
 		vinfo.AffectedPackages.Sort()
 		r.ScannedCves[cve.CveID] = vinfo
 	}

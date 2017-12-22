@@ -81,9 +81,10 @@ Table of Contents
       * [Example: Scan specific servers](#example-scan-specific-servers)
       * [Example: Scan via shell instead of SSH.](#example-scan-via-shell-instead-of-ssh)
          * [cron](#cron)
-      * [Example: Scan containers (Docker/LXD)](#example-scan-containers-dockerlxd)
+      * [Example: Scan containers (Docker/LXD/LXC)](#example-scan-containers-dockerlxdlxc)
          * [Docker](#docker)
          * [LXD](#lxd)
+	 * [LXC](#lxc)
    * [Usage: Report](#usage-report)
       * [How to read a report](#how-to-read-a-report)
          * [Example](#example-1)
@@ -144,7 +145,7 @@ Vuls is a tool created to solve the problems listed above. It has the following 
 # Main Features
 
 - Scan for any vulnerabilities in Linux/FreeBSD Server
-    - Supports FreeBSD, Ubuntu, Debian, CentOS, Amazon Linux, RHEL, Oracle Linux, SUSE Enterprise Linux and Raspbian
+    - Supports Alpine, Ubuntu, Debian, CentOS, Amazon Linux, RHEL, Oracle Linux, SUSE Enterprise Linux and Raspbian, FreeBSD
     - Cloud, on-premise, Docker
 - High quality scan
     - Vuls uses Multiple vulnerability databases
@@ -331,6 +332,7 @@ $ goval-dictionary fetch-redhat 7
 ```
 
 If you want to scan other than CentOS 7, fetch OVAL data according to the OS type and version of scan target server in advance.
+- [Alpine](https://github.com/kotakanbe/goval-dictionary#usage-fetch-alpine-secdb-as-oval-data-type)
 - [RedHat, CentOS](https://github.com/kotakanbe/goval-dictionary#usage-fetch-oval-data-from-redhat)
 - [Debian](https://github.com/kotakanbe/goval-dictionary#usage-fetch-oval-data-from-debian)
 - [Ubuntu](https://github.com/kotakanbe/goval-dictionary#usage-fetch-oval-data-from-ubuntu)
@@ -600,16 +602,16 @@ On the aggregation server, you can refer to the scanning result of each scan tar
 
 | Distribution|                             Scan Speed | Need Root Privilege |       OVAL | Need Internet Access <br>on scan tareget|
 |:------------|:--------------------------------------:|:-------------------:|:----------:|:---------------------------------------:|
-| CentOS      |                                   Fast |　                No |  Supported |                                      No | 
+| Alpine      |                                   Fast |　                No |  Supported |                                    Need |
+| CentOS      |                                   Fast |　                No |  Supported |                                      No |
 | RHEL        |                                   Fast |　                No |  Supported |                                      No |
 | Oracle      |                                   Fast |　                No |  Supported |                                      No |
 | Ubuntu      |                                   Fast |　                No |  Supported |                                      No |
 | Debian      |                                   Fast |　                No |  Supported |                                      No |
 | Raspbian    |1st time: Slow <br> From 2nd time: Fast |                Need |         No |                                    Need |
 | FreeBSD     |                                   Fast |　                No |         No |                                    Need |
-| Amazon      |                                   Fast |　                No |         No |                                    Need | 
-| SUSE Enterprise |                               Fast |　                No |  Supported |                                      No| 
-
+| Amazon      |                                   Fast |　                No |         No |                                    Need |
+| SUSE Enterprise |                               Fast |　                No |  Supported |                                      No |
 
 ---------
 
@@ -618,7 +620,8 @@ On the aggregation server, you can refer to the scanning result of each scan tar
 
 | Distribution|                            Scan Speed |       Need Root Privilege |      OVAL | Need Internet Access <br>on scan tareget|
 |:------------|:-------------------------------------:|:-------------------------:|:---------:|:---------------------------------------:|
-| CentOS      |                                  Slow |　                      No | Supported |                                    Need | 
+| Alpine      |                                  Fast |　                      No | Supported |                                    Need |
+| CentOS      |                                  Slow |　                      No | Supported |                                    Need |
 | RHEL        |                                  Slow |　                    Need | Supported |                                    Need |
 | Oracle      |                                  Slow |　                    Need | Supported |                                    Need |
 | Ubuntu      |1st time: Slow <br> From 2nd time: Fast|                      Need | Supported |                                    Need |
@@ -626,7 +629,7 @@ On the aggregation server, you can refer to the scanning result of each scan tar
 | Raspbian    |1st time: Slow <br> From 2nd time: Fast|                      Need |        No |                                    Need |
 | FreeBSD     |                                  Fast |　                      No |        No |                                    Need |
 | Amazon      |                                  Slow |　                      No |        No |                                    Need |
-| SUSE Enterprise |                               Fast |　                     No |  Supported |                                      No| 
+| SUSE Enterprise |                              Fast |　                      No |  Supported |                                     No |
 
 
 - On Ubuntu, Debian and Raspbian
@@ -641,7 +644,7 @@ Vuls issues `yum changelog` to get changelogs of upgradable packages at once and
 - On RHEL, Oracle, Amazon and FreeBSD
 Detect CVE IDs by using package manager.
 
-- On SUSE Enterprise Linux
+- On SUSE Enterprise Linux and Alpine Linux
 Same as fast scan mode for now.
 
 ----
@@ -668,7 +671,8 @@ If there is a staging environment with the same configuration as the production 
 
 | Distribution |            Release |
 |:-------------|-------------------:|
-| Ubuntu       |          12, 14, 16|
+| Alpine       |    3.2 and later |
+| Ubuntu       |              14, 16|
 | Debian       |             7, 8, 9|
 | RHEL         |             5, 6, 7|
 | Oracle Linux |             5, 6, 7|
@@ -744,7 +748,7 @@ host         = "172.31.4.82"
 #    ["key", "value"],
 #]
 #[servers.172-31-4-82.containers]
-#type = "lxd" # or "docker"
+#type = "lxd" # or "docker" or "lxc"
 #includes = ["${running}"]
 #excludes = ["container_name", "container_id"]
 ```
@@ -849,7 +853,7 @@ You can customize your configuration using this template.
     #    ["key", "value"],
     #]
     #[servers.172-31-4-82.containers]
-    #type = "lxd" # or "docker"
+    #type = "lxd" # or "docker" or "lxc"
     #includes = ["${running}"]
     #excludes = ["container_name", "container_id"]
     ```
@@ -864,7 +868,7 @@ You can customize your configuration using this template.
     - cpeNames: see [Usage: Scan vulnerability of non-OS package](#usage-scan-vulnerability-of-non-os-package)
     - ignoreCves: CVE IDs that will not be reported. But output to JSON file.
     - optional: Add additional information to JSON report.
-    - containers: see [Example: Scan containers (Docker/LXD)(#example-scan-containers-dockerlxd)
+    - containers: see [Example: Scan containers (Docker/LXD/LXC)(#example-scan-containers-dockerlxdlxc)
 
     Vuls supports two types of SSH. One is external command. The other is native go implementation. For details, see [-ssh-native-insecure option](#-ssh-native-insecure-option)
 
@@ -918,11 +922,12 @@ The configtest subcommand checks whether vuls is able to connect via SSH to serv
 
 | Distribution |            Release | Requirements |
 |:-------------|-------------------:|:-------------|
+| Alpine       |      3.2 and later | - |
 | Ubuntu       |          12, 14, 16| - |
 | Debian       |             7, 8, 9| reboot-notifier|
 | CentOS       |                6, 7| - |
-| Amazon       |                All | - |
-| RHEL         |            5, 6, 7 | - | 
+| Amazon       |                All | yum-utils |
+| RHEL         |            5, 6, 7 | - |
 | Oracle Linux |            5, 6, 7 | - |
 | SUSE Enterprise|            11, 12 | - |
 | FreeBSD      |             10, 11 | - |
@@ -939,14 +944,17 @@ In order to scan with deep scan mode, the following dependencies are required, s
 
 | Distribution |            Release | Requirements |
 |:-------------|-------------------:|:-------------|
+| Alpine       |      3.2 and later | - |
 | Ubuntu       |          12, 14, 16| -            |
 | Debian       |             7, 8, 9| aptitude, reboot-notifier     |
-| CentOS       |                6, 7| yum-plugin-changelog, yum-utils |
-| Amazon       |                All | yum-plugin-changelog, yum-utils |
-| RHEL         |                  5 | yum-utils, yum-security, yum-changelog |
-| RHEL         |               6, 7 | yum-utils, yum-plugin-changelog |
-| Oracle Linux |                  5 | yum-utils, yum-security, yum-changelog |
-| Oracle Linux |               6, 7 | yum-utils, yum-plugin-changelog |
+| CentOS       |                6, 7| yum-utils, yum-plugin-changelog |
+| Amazon       |                All | yum-utils, yum-plugin-changelog |
+| RHEL         |                  5 | yum-utils, yum-changelog, yum-security |
+| RHEL         |                  6 | yum-utils, yum-plugin-changelog, yum-plugin-security |
+| RHEL         |                  7 | yum-utils, yum-plugin-changelog |
+| Oracle Linux |                  5 | yum-utils, yum-changelog, yum-security |
+| Oracle Linux |                  6 | yum-utils, yum-plugin-changelog, yum-plugin-security |
+| Oracle Linux |                  7 | yum-utils, yum-plugin-changelog |
 | SUSE Enterprise|            11, 12 | - |
 | FreeBSD      |                 10 | -            |
 | Raspbian     |     Wheezy, Jessie | -            |
@@ -1101,7 +1109,7 @@ If you use local scan mode for cron jobs, don't forget to add below line to `/et
 Defaults:vuls !requiretty
 ```
 
-## Example: Scan containers (Docker/LXD)
+## Example: Scan containers (Docker/LXD/LXC)
 
 It is common that keep containers running without SSHd daemon.  
 see [Docker Blog:Why you don't need to run SSHd in your Docker containers](https://blog.docker.com/2014/06/why-you-dont-need-to-run-sshd-in-docker/)
@@ -1173,6 +1181,30 @@ keyPath     = "/home/username/.ssh/id_rsa"
 [servers.172-31-4-82.containers]
 type = "lxd"
 includes = ["${running}"]
+```
+
+### LXC
+
+Vuls scans lxc via `lxc-attach` instead of SSH.  
+```
+[servers]
+
+[servers.172-31-4-82]
+host         = "172.31.4.82"
+user        = "ec2-user"
+keyPath     = "/home/username/.ssh/id_rsa"
+
+[servers.172-31-4-82.containers]
+type = "lxc"
+includes = ["${running}"]
+```
+
+LXC required root privilege.  
+
+Example of /etc/sudoers on target servers
+
+```
+vuls ALL=(ALL) NOPASSWD:/usr/bin/lxc-attach -n *, /usr/bin/lxc-ls *
 ```
 
 ----
@@ -1668,9 +1700,10 @@ tui:
                 [-ovaldb-type=sqlite3|mysql]
                 [-ovaldb-path=/path/to/oval.sqlite3]
                 [-ovaldb-url=http://127.0.0.1:1324 or DB connection string]
-				[-cvss-over=7]
-				[-ignore-unscored-cves]
-				[-ignore-unfixed]
+                [-cvss-over=7]
+                [-ignore-unscored-cves]
+                [-ignore-unfixed]
+                [-refresh-cve]
                 [-results-dir=/path/to/results]
                 [-log-dir=/path/to/log]
                 [-debug]
@@ -1855,7 +1888,8 @@ Run with --debug, --sql-debug option.
 [Riak docs](http://docs.basho.com/riak/latest/ops/tuning/open-files-limit/) is awesome.
 
 - Does Vuls accept SSH connections with fish-shell or old zsh as the login shell?  
-No, Vuls needs a user on the server for bash login. see also [#8](/../../issues/8)
+~~No, Vuls needs a user on the server for bash login. see also [#8](/../../issues/8)~~  
+Yes, fixed in [#545](https://github.com/future-architect/vuls/pull/545)
 
 - Windows  
 Use Microsoft Baseline Security Analyzer. [MBSA](https://technet.microsoft.com/en-us/security/cc184924.aspx)
@@ -1879,6 +1913,12 @@ Youtube
 
 - [NVD](https://nvd.nist.gov/)
 - [JVN(Japanese)](http://jvndb.jvn.jp/apis/myjvn/)
+- [RedHat](https://www.redhat.com/security/data/oval/)
+- [Debian](https://www.debian.org/security/oval/)
+- [Ubuntu](https://people.canonical.com/~ubuntu-security/oval/)
+- [SUSE](http://ftp.suse.com/pub/projects/security/oval/)
+- [Oracle Linux](https://linux.oracle.com/security/oval/)
+- [Alpine-secdb](https://git.alpinelinux.org/cgit/alpine-secdb/)
 
 
 # Authors

@@ -75,9 +75,10 @@ Table of Contents
       * [Example: Scan specific servers](#example-scan-specific-servers)
       * [Example: Scan via shell instead of SSH.](#example-scan-via-shell-instead-of-ssh)
          * [cronで動かす場合](#cronで動かす場合)
-      * [Example: Scan containers (Docker/LXD)](#example-scan-containers-dockerlxd)
+      * [Example: Scan containers (Docker/LXD/LXC)](#example-scan-containers-dockerlxdlxc)
          * [Docker](#docker)
          * [LXDコンテナをスキャンする場合](#lxdコンテナをスキャンする場合)
+         * [LXCコンテナをスキャンする場合](#lxcコンテナをスキャンする場合)
    * [Usage: Report](#usage-report)
       * [How to read a report](#how-to-read-a-report)
          * [Example](#example-1)
@@ -139,7 +140,7 @@ Vulsは上に挙げた手動運用での課題を解決するツールであり�
 # Main Features
 
 - サーバに存在する脆弱性をスキャン
-    - FreeBSD, Ubuntu, Debian, CentOS, Amazon Linux, RHEL, Oracle Linux, SUSE Enterprise, Raspbianに対応
+    - Alpine, Ubuntu, Debian, CentOS, Amazon Linux, RHEL, Oracle Linux, SUSE Enterprise, Raspbian, FreeBSD に対応
     - クラウド、オンプレミス、Docker
 - 高精度なスキャン
     - Vulsは複数の脆弱性データベース、複数の検知方法を組み合わせることで高精度なスキャンを実現している
@@ -324,6 +325,7 @@ $ goval-dictionary fetch-redhat 7
 
 今回はスキャン対象がCentOS 7なので、RedHat 7のOVALを取得している。
 他の種類のOSをスキャンする場合は以下を参照し、スキャン対象用のOVALを取得しておくこと
+- [Alpine](https://github.com/kotakanbe/goval-dictionary#usage-fetch-alpine-secdb-as-oval-data-type)
 - [RedHat, CentOS](https://github.com/kotakanbe/goval-dictionary#usage-fetch-oval-data-from-redhat)
 - [Debian](https://github.com/kotakanbe/goval-dictionary#usage-fetch-oval-data-from-debian)
 - [Ubuntu](https://github.com/kotakanbe/goval-dictionary#usage-fetch-oval-data-from-ubuntu)
@@ -593,15 +595,16 @@ Vulsをスキャン対象サーバにデプロイする。Vulsはローカルホ
 
 | Distribution|                             Scan Speed | Need Root Privilege |       OVAL | Need Internet Access <br>on scan tareget|
 |:------------|:--------------------------------------:|:-------------------:|:----------:|:---------------------------------------:|
-| CentOS      |                                   Fast |　                No |  Supported |                                      No | 
+| Alpine      |                                   Fast |　                No |  Supported |                                    Need |
+| CentOS      |                                   Fast |　                No |  Supported |                                      No |
 | RHEL        |                                   Fast |　                No |  Supported |                                      No |
 | Oracle      |                                   Fast |　                No |  Supported |                                      No |
 | Ubuntu      |                                   Fast |　                No |  Supported |                                      No |
 | Debian      |                                   Fast |　                No |  Supported |                                      No |
 | Raspbian    |1st time: Slow <br> From 2nd time: Fast |                Need |         No |                                    Need |
 | FreeBSD     |                                   Fast |　                No |         No |                                    Need |
-| Amazon      |                                   Fast |　                No |         No |                                    Need | 
-| SUSE Enterprise |                               Fast |　                No |  Supported |                                      No| 
+| Amazon      |                                   Fast |　                No |         No |                                    Need |
+| SUSE Enterprise |                               Fast |　                No |  Supported |                                      No |
 
 ----
 
@@ -612,7 +615,8 @@ Vulsをスキャン対象サーバにデプロイする。Vulsはローカルホ
 
 | Distribution|                            Scan Speed |       Need Root Privilege |      OVAL | Need Internet Access <br>on scan tareget|
 |:------------|:-------------------------------------:|:-------------------------:|:---------:|:---------------------------------------:|
-| CentOS      |                                  Slow |　                      No | Supported |                                    Need | 
+| Alpine      |                                  Fast |　                      No | Supported |                                    Need |
+| CentOS      |                                  Slow |　                      No | Supported |                                    Need |
 | RHEL        |                                  Slow |　                    Need | Supported |                                    Need |
 | Oracle      |                                  Slow |　                    Need | Supported |                                    Need |
 | Ubuntu      |1st time: Slow <br> From 2nd time: Fast|                      Need | Supported |                                    Need |
@@ -620,7 +624,7 @@ Vulsをスキャン対象サーバにデプロイする。Vulsはローカルホ
 | Raspbian    |1st time: Slow <br> From 2nd time: Fast|                      Need |        No |                                    Need |
 | FreeBSD     |                                  Fast |　                      No |        No |                                    Need |
 | Amazon      |                                  Slow |　                      No |        No |                                    Need |
-| SUSE Enterprise |                               Fast |　                     No |  Supported |                                      No| 
+| SUSE Enterprise |                              Fast |　                      No |  Supported |                                     No |
 
 
 - On Ubuntu, Debian and Raspbian
@@ -634,7 +638,7 @@ Vulsをスキャン対象サーバにデプロイする。Vulsはローカルホ
 - On RHEL, Oracle, Amazon and FreeBSD
 `yum changelog`でアップデート対象のパッケージのチェンジログを取得する(パースはしない)。
 
-- On SUSE Enterprise Linux
+- On SUSE Enterprise Linux and Alpine Linux
 Same as fast scan mode for now.
 
 ----
@@ -657,7 +661,8 @@ web/app server in the same configuration under the load balancer
 
 | Distribution|            Release |
 |:------------|-------------------:|
-| Ubuntu      |          12, 14, 16|
+| Alpine      |      3.2 and later |
+| Ubuntu      |              14, 16|
 | Debian      |             7, 8, 9|
 | RHEL        |             5, 6, 7|
 | CentOS      |                6, 7|
@@ -730,7 +735,7 @@ host         = "172.31.4.82"
 #    ["key", "value"],
 #]
 #[servers.172-31-4-82.containers]
-#type = "lxd" # or "docker"
+#type = "lxd" # or "docker" or "lxc"
 #includes = ["${running}"]
 #excludes = ["container_name", "container_id"]
 ```
@@ -815,7 +820,7 @@ host         = "172.31.4.82"
     #    ["key", "value"],
     #]
     #[servers.172-31-4-82.containers]
-    #type = "lxd" # or "docker"
+    #type = "lxd" # or "docker" or "lxc"
     #includes = ["${running}"]
     #excludes = ["container_name", "container_id"]
     ```
@@ -910,10 +915,11 @@ configtestサブコマンドは、config.tomlで定義されたサーバ/コン�
 
 | Distribution |            Release | Requirements |
 |:-------------|-------------------:|:-------------|
+| Alpine       |    3.2 and later | - |
 | Ubuntu       |          12, 14, 16| - |
 | Debian       |             7, 8, 9| reboot-notifier|
 | CentOS       |                6, 7| - |
-| Amazon       |                All | - |
+| Amazon       |                All | yum-utils |
 | RHEL         |            5, 6, 7 | - | 
 | Oracle Linux |            5, 6, 7 | - |
 | SUSE Enterprise|            11, 12 | - |
@@ -933,14 +939,17 @@ Deep Scan Modeでスキャンするためには、下記のパッケージが必
 
 | Distribution |            Release | Requirements |
 |:-------------|-------------------:|:-------------|
+| Alpine       |    3.2 and later | - |
 | Ubuntu       |          12, 14, 16| -            |
 | Debian       |             7, 8, 9| aptitude, reboot-notifier     |
-| CentOS       |                6, 7| yum-plugin-changelog, yum-utils |
-| Amazon       |                All | yum-plugin-changelog, yum-utils |
-| RHEL         |                  5 | yum-utils, yum-security, yum-changelog |
-| RHEL         |               6, 7 | yum-utils, yum-plugin-changelog |
-| Oracle Linux |                  5 | yum-utils, yum-security, yum-changelog |
-| Oracle Linux |               6, 7 | yum-utils, yum-plugin-changelog |
+| CentOS       |                6, 7| yum-utils, yum-plugin-changelog |
+| Amazon       |                All | yum-utils, yum-plugin-changelog |
+| RHEL         |                  5 | yum-utils, yum-changelog, yum-security |
+| RHEL         |                  6 | yum-utils, yum-plugin-changelog, yum-plugin-security |
+| RHEL         |                  7 | yum-utils, yum-plugin-changelog |
+| Oracle Linux |                  5 | yum-utils, yum-changelog, yum-security |
+| Oracle Linux |                  6 | yum-utils, yum-plugin-changelog, yum-plugin-security |
+| Oracle Linux |                  7 | yum-utils, yum-plugin-changelog |
 | SUSE Enterprise|            11, 12 | - |
 | FreeBSD      |                 10 | -            |
 | Raspbian     |     Wheezy, Jessie | -            |
@@ -1095,7 +1104,7 @@ RHEL/CentOSの場合、スキャン対象サーバの/etc/sudoersに以下を追
 Defaults:vuls !requiretty
 ```
 
-## Example: Scan containers (Docker/LXD)
+## Example: Scan containers (Docker/LXD/LXC)
 
 
 コンテナはSSHデーモンを起動しないで運用するケースが一般的。  
@@ -1167,6 +1176,30 @@ keyPath     = "/home/username/.ssh/id_rsa"
 [servers.172-31-4-82.containers]
 type = "lxd"
 includes = ["${running}"]
+```
+
+### LXC
+
+Vulsは、ホストにSSHで接続し、`lxc-attach`でLXCコンテナにコマンドを発行して脆弱性をスキャンする。  
+```
+[servers]
+
+[servers.172-31-4-82]
+host         = "172.31.4.82"
+user        = "ec2-user"
+keyPath     = "/home/username/.ssh/id_rsa"
+
+[servers.172-31-4-82.containers]
+type = "lxc"
+includes = ["${running}"]
+```
+
+LXCコンテナの操作にはroot権限が必要です。  
+
+スキャン対象サーバ上の`/etc/sudoers`のサンプル
+
+```
+vuls ALL=(ALL) NOPASSWD:/usr/bin/lxc-attach -n *, /usr/bin/lxc-ls *
 ```
 
 # Usage: Report
@@ -1655,6 +1688,9 @@ tui:
                 [-ovaldb-type=sqlite3|mysql]
                 [-ovaldb-path=/path/to/oval.sqlite3]
                 [-ovaldb-url=http://127.0.0.1:1324 or DB connection string]
+                [-cvss-over=7]
+                [-ignore-unscored-cves]
+                [-ignore-unfixed]
                 [-refresh-cve]
                 [-results-dir=/path/to/results]
                 [-log-dir=/path/to/log]
@@ -1674,6 +1710,12 @@ tui:
         DB type for fetching OVAL dictionary (sqlite3 or mysql) (default "sqlite3")
   -ovaldb-url string
         http://goval-dictionary.com:1324 or mysql connection string
+  -cvss-over float
+        -cvss-over=6.5 means reporting CVSS Score 6.5 and over (default: 0 (means report all))
+  -ignore-unfixed
+        Don't report the unfixed CVEs
+  -ignore-unscored-cves
+        Don't report the unscored CVEs
   -debug
         debug mode
   -debug-sql
@@ -1874,7 +1916,8 @@ Run with --debug, --sql-debug option.
 [Riak docs](http://docs.basho.com/riak/latest/ops/tuning/open-files-limit/) is awesome.
 
 - Does Vuls accept ssh connections with fish-shell or old zsh as the login shell?  
-No, Vuls needs a user on the server for bash login. see also [#8](/../../issues/8)
+~~No, Vuls needs a user on the server for bash login. see also [#8](/../../issues/8)~~  
+Yes, fixed in [#545](https://github.com/future-architect/vuls/pull/545)
 
 - Windows  
 Use Microsoft Baseline Security Analyzer. [MBSA](https://technet.microsoft.com/en-us/security/cc184924.aspx)
@@ -1898,6 +1941,12 @@ Youtube
 
 - [NVD](https://nvd.nist.gov/)
 - [JVN(Japanese)](http://jvndb.jvn.jp/apis/myjvn/)
+- [RedHat](https://www.redhat.com/security/data/oval/)
+- [Debian](https://www.debian.org/security/oval/)
+- [Ubuntu](https://people.canonical.com/~ubuntu-security/oval/)
+- [SUSE](http://ftp.suse.com/pub/projects/security/oval/)
+- [Oracle Linux](https://linux.oracle.com/security/oval/)
+- [Alpine-secdb](https://git.alpinelinux.org/cgit/alpine-secdb/)
 
 
 # Authors
